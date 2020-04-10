@@ -14,7 +14,9 @@ Clicking "Perform Bed Level and Check" will execute a bed level operation and st
 
 ![example showing GCode script in settings](example2.png)
 
-It should be noted that the heatmap image **will not** reload automatically. To reload, click "Reload Heatmap Image" below the heatmap. This is to allow you to be paying attention and see how your new bed level result changes.
+If you do not set a Image Auto Refresh value in the Plugin Options, or set that value to 0, then the heatmap image will not auto-refresh.
+
+If you want the image to be auto-refreshed, then measure how long it takes your Prusa to do a mesh level and heatmap generation, add a few seconds for tolerance, and set that amount as the value of the Auto Refresh value. From then on, the image will auto-refresh after that period of time has elapsed.
 
 ## G81 Output Handler
 

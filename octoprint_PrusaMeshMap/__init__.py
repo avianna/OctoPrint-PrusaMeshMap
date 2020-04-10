@@ -8,16 +8,82 @@ from __future__ import absolute_import
 # as necessary.
 #
 # Take a look at the documentation on what other plugin mixins are available.
-
+import gc
+import os.path
+import psutil
+import time
 import datetime
 import numpy as np
-import matplotlib
-matplotlib.use('Agg')
 import matplotlib.pyplot as plt
+plt.switch_backend('Agg')
 import matplotlib.image as mpimg
 import re
 import octoprint.plugin
 import octoprint.printer
+
+# Use some globals to minimize memory loss between runs
+
+# We work with coordinates relative to the dashed line on the
+# skilkscreen on the MK52 heatbed: print area coordinates. Note
+# this doesn't exactly line up with the steel sheet, so we have to
+# adjust for that when generating the background image, below.
+# Points are measured from the middle of the PINDA / middle of the
+# 4 probe circles on the MK52.
+
+MESH_NUM_POINTS_X = 7
+MESH_NUM_MEASURED_POINTS_X = 3
+MESH_NUM_POINTS_Y = 7
+MESH_NUM_MEASURED_POINTS_Y = 3
+BED_SIZE_X = 250
+BED_SIZE_Y = 210
+
+# These values come from mesh_bed_calibration.cpp
+BED_PRINT_ZERO_REF_X = 2
+BED_PRINT_ZERO_REF_Y = 9.4
+
+# Mesh probe points, in print area coordinates
+# We assume points are symmetrical (i.e a rectangular grid)
+MESH_FRONT_LEFT_X = 37 - BED_PRINT_ZERO_REF_X
+MESH_FRONT_LEFT_Y = 18.4 - BED_PRINT_ZERO_REF_Y
+
+MESH_REAR_RIGHT_X = 245 - BED_PRINT_ZERO_REF_X
+MESH_REAR_RIGHT_Y = 210.4 - BED_PRINT_ZERO_REF_Y
+
+# Offset of the marked print area on the steel sheet relative to
+# the marked print area on the MK52. The steel sheet has margins
+# outside of the print area, so we need to account for that too.
+
+SHEET_OFFS_X = 0
+# Technically SHEET_OFFS_Y is -2 (sheet is BELOW (frontward to) that on the MK52)
+# However, we want to show the user a view that looks lined up with the MK52, so we
+# ignore this and set the value to zero.
+SHEET_OFFS_Y = 0
+SHEET_MARGIN_LEFT = 0
+SHEET_MARGIN_RIGHT = 0
+
+# The SVG of the steel sheet (up on Github) is not symmetric as the actual one is
+SHEET_MARGIN_FRONT = 17
+SHEET_MARGIN_BACK = 14
+
+sheet_left_x = -(SHEET_MARGIN_LEFT + SHEET_OFFS_X)
+sheet_right_x = sheet_left_x + BED_SIZE_X + SHEET_MARGIN_LEFT + SHEET_MARGIN_RIGHT
+sheet_front_y = -(SHEET_MARGIN_FRONT + SHEET_OFFS_Y)
+sheet_back_y = sheet_front_y + BED_SIZE_Y + SHEET_MARGIN_FRONT + SHEET_MARGIN_BACK
+
+mesh_range_x = MESH_REAR_RIGHT_X - MESH_FRONT_LEFT_X
+mesh_range_y = MESH_REAR_RIGHT_Y - MESH_FRONT_LEFT_Y
+
+mesh_delta_x = mesh_range_x / (MESH_NUM_POINTS_X - 1)
+mesh_delta_y = mesh_range_y / (MESH_NUM_POINTS_Y - 1)
+
+
+####################################################################################
+
+def _get_free_mem():
+	""" Returns:
+		float: current pi free memory in KB
+	"""
+	return float(psutil.virtual_memory().free)/1024/1024
 
 class PrusameshmapPlugin(octoprint.plugin.SettingsPlugin,
                          octoprint.plugin.AssetPlugin,
@@ -85,77 +151,34 @@ class PrusameshmapPlugin(octoprint.plugin.SettingsPlugin,
 
         def mesh_level_check(self, comm, line, *args, **kwargs):
                 if re.match(r"^(  -?\d+.\d+)+$", line):
-                    self.mesh_level_responses.append(line)
-                    self._logger.info("FOUND: " + line)
-                    self.mesh_level_generate()
-                    return line
-                else:
-                    return line
+			self.mesh_level_responses.append(line)
+			self._logger.info("FOUND: " + line)
+			self.mesh_level_generate()
+		return line
 
         ##~~ Mesh Bed Level Heatmap Generation
 
+	runs = 1
+	starting_free_mem = 0
+
         mesh_level_responses = []
+	fig = plt.figure(dpi=96, figsize=(10,8.3))
+	ax = plt.gca()
+
+	# Insert the background image (currently an image of the MK3 PEI-coated steel sheet)
+	background_img = None
 
         def mesh_level_generate(self):
 
-            # We work with coordinates relative to the dashed line on the
-            # skilkscreen on the MK52 heatbed: print area coordinates. Note
-            # this doesn't exactly line up with the steel sheet, so we have to
-            # adjust for that when generating the background image, below.
-            # Points are measured from the middle of the PINDA / middle of the
-            # 4 probe circles on the MK52.
-
-            MESH_NUM_POINTS_X = 7
-            MESH_NUM_MEASURED_POINTS_X = 3
-            MESH_NUM_POINTS_Y = 7
-            MESH_NUM_MEASURED_POINTS_Y = 3
-            BED_SIZE_X = 250
-            BED_SIZE_Y = 210
-
-            # These values come from mesh_bed_calibration.cpp
-            BED_PRINT_ZERO_REF_X = 2
-            BED_PRINT_ZERO_REF_Y = 9.4
-
-            # Mesh probe points, in print area coordinates
-            # We assume points are symmetrical (i.e a rectangular grid)
-            MESH_FRONT_LEFT_X = 37 - BED_PRINT_ZERO_REF_X
-            MESH_FRONT_LEFT_Y = 18.4 - BED_PRINT_ZERO_REF_Y
-
-            MESH_REAR_RIGHT_X = 245 - BED_PRINT_ZERO_REF_X
-            MESH_REAR_RIGHT_Y = 210.4 - BED_PRINT_ZERO_REF_Y
-
-            # Offset of the marked print area on the steel sheet relative to
-            # the marked print area on the MK52. The steel sheet has margins
-            # outside of the print area, so we need to account for that too.
-
-            SHEET_OFFS_X = 0
-            # Technically SHEET_OFFS_Y is -2 (sheet is BELOW (frontward to) that on the MK52)
-            # However, we want to show the user a view that looks lined up with the MK52, so we
-            # ignore this and set the value to zero.
-            SHEET_OFFS_Y = 0
-                               # 
-            SHEET_MARGIN_LEFT = 0
-            SHEET_MARGIN_RIGHT = 0
-            # The SVG of the steel sheet (up on Github) is not symmetric as the actual one is
-            SHEET_MARGIN_FRONT = 17
-            SHEET_MARGIN_BACK = 14
-
-            sheet_left_x = -(SHEET_MARGIN_LEFT + SHEET_OFFS_X)
-            sheet_right_x = sheet_left_x + BED_SIZE_X + SHEET_MARGIN_LEFT + SHEET_MARGIN_RIGHT
-            sheet_front_y = -(SHEET_MARGIN_FRONT + SHEET_OFFS_Y)
-            sheet_back_y = sheet_front_y + BED_SIZE_Y + SHEET_MARGIN_FRONT + SHEET_MARGIN_BACK
-
-
-            mesh_range_x = MESH_REAR_RIGHT_X - MESH_FRONT_LEFT_X
-            mesh_range_y = MESH_REAR_RIGHT_Y - MESH_FRONT_LEFT_Y
-
-            mesh_delta_x = mesh_range_x / (MESH_NUM_POINTS_X - 1)
-            mesh_delta_y = mesh_range_y / (MESH_NUM_POINTS_Y - 1)
-
             # Accumulate response lines until we have all of them
             if len(self.mesh_level_responses) == MESH_NUM_POINTS_Y:
+		if self.runs == 1:
+			self.starting_free_mem = _get_free_mem()
+
+		self._logger.info("Run {:d}, starting free mem: {:.2f} mb".format(self.runs, _get_free_mem()))
 
                 self._logger.info("Generating heatmap")
+		start_time = time.time()
 
                 # TODO: Validate each row has MESH_NUM_POINTS_X values
 
@@ -190,9 +213,10 @@ class PrusameshmapPlugin(octoprint.plugin.SettingsPlugin,
 
                 ############
                 # Draw the heatmap
-                #fig = plt.figure(dpi=96, figsize=(12, 9))
-                fig = plt.figure(dpi=96, figsize=(10,8.3))
-                ax = plt.gca()
+		plt.clf()
+		if self.background_img is None:
+			self.background_img = mpimg.imread(self.get_asset_folder() + '/img/mk52_steel_sheet.png')
+		plt.imshow(self.background_img, extent=[sheet_left_x, sheet_right_x, sheet_front_y, sheet_back_y], interpolation="lanczos", cmap=plt.cm.get_cmap(self._settings.get(["matplotlib_heatmap_theme"])))
 
                 # Plot all mesh points, including measured ones and the ones
                 # that are bogus (calculated). Indicate the actual measured
@@ -208,13 +232,11 @@ class PrusameshmapPlugin(octoprint.plugin.SettingsPlugin,
                 # bottom-up orientation of plot library
                 contour = plt.contourf(mesh_x, mesh_y[::-1], mesh_z, alpha=.75, antialiased=True, cmap=plt.cm.get_cmap(self._settings.get(["matplotlib_heatmap_theme"])))
 
-                # Insert the background image (currently an image of the MK3 PEI-coated steel sheet)
-                img = mpimg.imread(self.get_asset_folder() + '/img/mk52_steel_sheet.png')
-                plt.imshow(img, extent=[sheet_left_x, sheet_right_x, sheet_front_y, sheet_back_y], interpolation="lanczos", cmap=plt.cm.get_cmap(self._settings.get(["matplotlib_heatmap_theme"])))
-
                 # Set axis ranges (although we don't currently show these...)
-                ax.set_xlim(left=sheet_left_x, right=sheet_right_x)
-                ax.set_ylim(bottom=sheet_front_y, top=sheet_back_y)
+                self.ax.set_xlim(left=sheet_left_x, right=sheet_right_x)
+                #ax.set_xlim(left=sheet_left_x, right=sheet_right_x)
+                self.ax.set_ylim(bottom=sheet_front_y, top=sheet_back_y)
+                #ax.set_ylim(bottom=sheet_front_y, top=sheet_back_y)
 
                 # Set various options about the graph image before
                 # we generate it. Things like labeling the axes and
@@ -222,21 +244,31 @@ class PrusameshmapPlugin(octoprint.plugin.SettingsPlugin,
                 # the top to better match the G81 output.
                 plt.title("Mesh Level: " + datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S"))
                 plt.axis('image')
-                #ax.axes.get_xaxis().set_visible(True)
-                #ax.axes.get_yaxis().set_visible(True)
                 plt.xlabel("X Axis (mm)")
                 plt.ylabel("Y Axis (mm)")
 
-                #plt.colorbar(label="Bed Variance: " + str(round(mesh_z.max() - mesh_z.min(), 3)) + "mm")
                 plt.colorbar(contour, label="Measured Level (mm)")
                 
-                plt.text(0.5, 0.43, "Total Bed Variance: " + str(bed_variance) + " (mm)", fontsize=10, horizontalalignment='center', verticalalignment='center', transform=ax.transAxes, bbox=dict(facecolor='#eeefff', alpha=0.5))
+                plt.text(0.5, 0.43, "Total Bed Variance: " + str(bed_variance) + " (mm)", fontsize=10, horizontalalignment='center', verticalalignment='center', transform=self.ax.transAxes, bbox=dict(facecolor='#eeefff', alpha=0.5))
 
                 # Save our graph as an image in the current directory.
-                fig.savefig(self.get_asset_folder() + '/img/heatmap.png', bbox_inches="tight")
-                self._logger.info("Heatmap updated")
+                previous_ctime = int(os.path.getctime(self.get_asset_folder() + '/img/heatmap.png'))
+                self.fig.savefig(self.get_asset_folder() + '/img/heatmap.png', bbox_inches="tight")
+                new_ctime = int(os.path.getctime(self.get_asset_folder() + '/img/heatmap.png'))
+		if new_ctime > previous_ctime:
+			elapsed_time = time.time() - start_time
+			self._logger.info("Heatmap updated, took {:d} sec".format(elapsed_time))
+		else:
+			self._logger.info("Heatmap creation failed")
 
+		# Memory cleanup/garbage collection and logging
                 del self.mesh_level_responses[:]
+		gc.collect()
+
+		free_mem = _get_free_mem()
+		total_lost_mem = self.starting_free_mem - free_mem
+		self._logger.info("Run {:d}, ending free mem: {:d} mb, total lost mem: {:d} mb, mb lost per run: {:.2f} mb".format(self.runs, free_mem, total_lost_mem, float(total_lost_mem)/self.runs))
+		self.runs += 1
 
 
 # If you want your plugin to be registered within OctoPrint under a different name than what you defined in setup.py

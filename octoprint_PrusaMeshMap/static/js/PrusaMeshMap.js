@@ -21,7 +21,7 @@ $(function() {
             levelGcode = self.settingsViewModel.settings.plugins.PrusaMeshMap.do_level_gcode();
             OctoPrint.control.sendGcode(levelGcode.split("\n"));
             document.getElementById("PrusaMeshMap-heatmap").style.opacity="0.5"; // to indicate heatmap is outdated
-	    image_refresh_timer = self.settingsViewModel.settings.plugins.PrusaMeshMap.image_refresh_timer*1000;
+	    image_refresh_timer = self.settingsViewModel.settings.plugins.PrusaMeshMap.image_refresh_timer()*1000;
 	    if (image_refresh_timer && image_refresh_timer > 0) {
 		    timer = setTimeout(function(){
 			document.getElementById("PrusaMeshMap-heatmap").src="/plugin/PrusaMeshMap/static/img/heatmap.png?" + new Date().getTime();

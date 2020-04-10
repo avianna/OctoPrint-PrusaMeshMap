@@ -257,7 +257,7 @@ class PrusameshmapPlugin(octoprint.plugin.SettingsPlugin,
                 new_ctime = int(os.path.getctime(self.get_asset_folder() + '/img/heatmap.png'))
 		if new_ctime > previous_ctime:
 			elapsed_time = time.time() - start_time
-			self._logger.info("Heatmap updated, took {:d} sec".format(elapsed_time))
+			self._logger.info("Heatmap updated, took {:.1f} sec".format(elapsed_time))
 		else:
 			self._logger.info("Heatmap creation failed")
 
@@ -267,7 +267,7 @@ class PrusameshmapPlugin(octoprint.plugin.SettingsPlugin,
 
 		free_mem = _get_free_mem()
 		total_lost_mem = self.starting_free_mem - free_mem
-		self._logger.info("Run {:d}, ending free mem: {:d} mb, total lost mem: {:d} mb, mb lost per run: {:.2f} mb".format(self.runs, free_mem, total_lost_mem, float(total_lost_mem)/self.runs))
+		self._logger.info("Run {:d}, ending free mem: {:.2f} mb, total lost mem: {:.2f} mb, mb lost per run: {:.2f} mb".format(self.runs, free_mem, total_lost_mem, float(total_lost_mem)/self.runs))
 		self.runs += 1
 
 

@@ -189,9 +189,7 @@ class PrusameshmapPlugin(octoprint.plugin.SettingsPlugin,
 
                 # Set axis ranges (although we don't currently show these...)
                 self.ax.set_xlim(left=sheet_left_x, right=sheet_right_x)
-                #ax.set_xlim(left=sheet_left_x, right=sheet_right_x)
                 self.ax.set_ylim(bottom=sheet_front_y, top=sheet_back_y)
-                #ax.set_ylim(bottom=sheet_front_y, top=sheet_back_y)
 
                 # Set various options about the graph image before
                 # we generate it. Things like labeling the axes and

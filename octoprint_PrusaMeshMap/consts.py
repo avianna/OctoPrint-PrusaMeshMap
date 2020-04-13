@@ -30,7 +30,7 @@ MESH_REAR_RIGHT_Y = 210.4 - BED_PRINT_ZERO_REF_Y
 # the marked print area on the MK52. The steel sheet has margins
 # outside of the print area, so we need to account for that too.
 
-SHEET_OFFS_X = 0
+SHEET_OFFS_X = -11
 # Technically SHEET_OFFS_Y is -2 (sheet is BELOW (frontward to) that on the MK52)
 # However, we want to show the user a view that looks lined up with the MK52, so we
 # ignore this and set the value to zero.
